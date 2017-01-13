@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<link href="css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body onload="init()">
+<script src="js/jquery.min.js"></script>
+<script src="js/bootstrap.min.js"></script>
+<script src="js/moment.js"></script>
+<script src="js/moment-timezone.js"></script>
+<script src="js/d3.v4.min.js"></script>
+
+<title>Presto Summary</title>
+
+<script type="text/javascript">
+	
+	var imageSize = 'large';
+	var xhr = new XMLHttpRequest();
+	var allQueries;
+	var gangliaImgs;
+	var swimlaneImg;
+
+	<!-- var metrics = {"cpu_report":"", "input_disk_report":"2500000000", "temp_disk_report":"2500000000", "output_disk_report":"2500000000", "network_report":"2500000000"}; -->
+	var metrics = {
+//		"mem_report":"",
+		"cpu_report":"",
+		"network_stack_report":"2000000000",
+        "disk_throu_report":"4000000000",
+//		"load_all_report":"",
+		
+	};
+	
+	function timeStringConverter(timeString) {
+        return moment(timeString).tz("Asia/Seoul");
+	}
+
+    var randomColor = (function(){
+        var golden_ratio_conjugate = 0.618033988749895;
+        var h = Math.random();
+
+        var hslToRgb = function (h, s, l){
+            var r, g, b;
+
+            if(s == 0){
+                r = g = b = l; // achromatic
+            }else{
+                function hue2rgb(p, q, t){
+                    if(t < 0) t += 1;
+                    if(t > 1) t -= 1;
+                    if(t < 1/6) return p + (q - p) * 6 * t;
+                    if(t < 1/2) return q;
+                    if(t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+                    return p;
+                }
+
+                var q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+                var p = 2 * l - q;
+                r = hue2rgb(p, q, h + 1/3);
+                g = hue2rgb(p, q, h);
+                b = hue2rgb(p, q, h - 1/3);
+            }
+
+            return '#'+Math.round(r * 255).toString(16)+Math.round(g * 255).toString(16)+Math.round(b * 255).toString(16);
+        };
+
+        return function(){
+            h += golden_ratio_conjugate;
+            h %= 1;
+            return hslToRgb(h, 0.5, 0.60);
+        };
+    })();
+    
+    function draw(query) {
+        swimlaneImg.selectAll("*").remove();
+
+        var margin = {top: 10, right: 57, bottom: 20, left: 93};
+        var width = +swimlaneImg.attr("width") - margin.left - margin.right;
+        var height = +swimlaneImg.attr("height") - margin.top - margin.bottom;
+
+        var g = swimlaneImg.append("g")
+            .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+        
+        var origin = query.createTime2;
+        var last = query.endTime2;
+
+        var x = d3.scaleLinear()
+            .domain([0, last - origin])
+            .range([0, width]);
+
+        // x-axis
+        g.append("g")
+            .attr("transform", "translate(0," + height + ")")
+            .attr("class", "axis axis--x")
+            .call(d3.axisBottom(x).ticks(5));
+        
+        var allStages = Object.keys(query.alltasks);
+
+        // preparing y-axis
+        var ord = 0;
+        var ordValues = [ord];
+        allStages.forEach(function(stageId) {
+            if (stageId in query.alltasks) {
+                var cnt = query.alltasks[stageId].length;
+                ord+=cnt;
+            } else {
+                console.log("Cannot find " + vertexName);
+            }
+
+            ordValues.push(ord); // should have this though vertex does exist
+        });
+        var y0 = d3.scaleLinear()
+            .domain([0, ord] )
+            .range([0, height])
+        ranges = ordValues.map(function(ord){ return y0(ord) })
+	    
+        // for each vertex
+        for (var i in allStages) {
+            var stageId = allStages[i];
+            if (stageId in query.alltasks) {
+                var stageTasks = query.alltasks[stageId];
+                var stageColor = randomColor();
+
+                var y1 = d3.scaleBand()
+                    .domain(stageTasks.map(function(task) { return task.taskId }))
+                    .range([ranges[i], ranges[+i+1]]);
+
+                g.append("g").selectAll("rect")
+                    .data(stageTasks)
+                    .enter().append("rect")
+                    .attr("class", "rect")
+                    .attr("y", function(task){ return y1(task.taskId) })
+                    .attr("x", function(task){ return x(task.firstStartTime - origin) })
+                    .attr("width", function(task){ return x(task.lastEndTime - origin) - x(task.firstStartTime - origin) })
+                    .attr("height", y1.bandwidth())
+                    .attr("fill", function(task){
+                        return stageColor;
+                    });
+            }
+        }
+
+        var yLabel = d3.scaleOrdinal()
+            .domain(allStages)
+            .range(ranges)
+
+        g.append("g")
+            .attr("class", "axis axis--y")
+            .attr("transform", "translate(" + x(0) + ", 0)")
+            .call(d3.axisLeft(yLabel).tickSize(3).tickPadding(x(0) + 6 ));
+    }
+    
+	// recursive call
+	function getTasks(query, substages, alltasks) {
+	    substages.forEach(function (stage) {
+	        if (stage.tasks) {
+	            // 20170105_003200_00013_wr36d.1 => 1
+                var stageId = stage.stageId.split(".")[1];
+	            
+	            if (alltasks[stageId] === undefined) {
+		            alltasks[stageId] = [];
+	            }
+	            
+                stage.tasks.forEach(function (task) {
+                    task.stageId = stageId;
+                    
+                    var status = task.taskStatus;
+                    var stats  = task.stats;
+                    var taskInfo = {
+                        taskId          : status.taskId,
+	                    stageId         : stageId,
+                        createdTime    : timeStringConverter(stats.createTime),
+	                    firstStartTime : timeStringConverter(stats.firstStartTime),
+                        lastStartTime  : timeStringConverter(stats.lastStartTime),
+                        lastEndTime    : timeStringConverter(stats.lastEndTime),
+	                    endTime        : timeStringConverter(stats.endTime),
+                    };
+                    
+                    alltasks[stageId].push(taskInfo);
+                });
+
+                if (stage.subStages) {
+                    getTasks(query, stage.subStages, alltasks)
+                }
+	        }
+	    });
+    }
+
+    function onQueryClicked(queryBtn) {
+        var queryId = queryBtn.value;
+
+        var prestoServer = document.getElementById("presto-web-server").value;
+        xhr.open('GET', prestoServer+"/v1/query/" + queryId);
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                var query = allQueries[queryId]; // source
+                query.alltasks = {};
+                if (xhr.response.outputStage) {
+                    getTasks(query, [xhr.response.outputStage], query.alltasks);
+                }
+                
+                query.createTime2 = query.createTime.startOf('minute');
+                query.endTime2 = query.endTime.add(1, 'minute').startOf('minute');
+                
+                setTimeFromMomentObj(query.createTime2, query.endTime2);
+                draw(query);
+            }
+        };
+        xhr.send();
+    }
+
+    function loadRecentQueries() {
+
+        var appTable = document.getElementById("tez-dags-table");
+        var prestoServer = document.getElementById("presto-web-server").value;
+
+        allQueries = {};
+        
+        xhr.open('GET', prestoServer+"/v1/query");
+        xhr.responseType = 'json';
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                var str = '';
+                var queries = xhr.response;
+                queries.map( function(query) {
+	                
+	                var stat = query.queryStats;
+	                
+                    if (stat.createTime) {
+                        query.createTime = timeStringConverter(stat.createTime);
+	                } else {
+	                    query.createTime = moment();
+	                }
+                    if (stat.endTime) {
+                        query.endTime = timeStringConverter(stat.endTime);
+                    } else {
+	                    query.endTime = moment();
+                    }
+
+                    return query;
+                }).sort( function(fst, snd) {
+	                return snd.createTime - fst.createTime;
+                }).forEach( function (query) {
+                    var id = query.queryId;
+                    var stat = query.queryStats;
+
+                    str += '<tr>';
+                    str += '<td>' + id + '</td>';
+                    str += '<td>' + query.createTime.format('MM/DD HH:mm:ss') + '</td>';
+                    str += '<td>' + query.endTime.format('MM/DD HH:mm:ss') + '</td>';
+                    str += '<td>' + query.state + '</td>';
+                    str += '<td>' + (query.endTime - query.createTime) + '</td>';
+                    str +=
+                        '<td><button type="button" class="btn btn-primary btn-sm" value="'+id+
+                        '" onclick=onQueryClicked(this)>load</button></td>';
+                    str += '</tr>';
+
+                    allQueries[id] = query;
+                })
+	            
+	            // for printing
+	            queries
+		            .sort( function(fst, snd) {
+			            return fst.createTime - snd.createTime;
+		            })
+		            .forEach( function(query) {
+		                if (query.state === "FINISHED") {
+                            console.log( (query.endTime - query.createTime)/1000 );
+		                } else {
+		                    console.log("-");
+		                }
+		                
+                        
+		            })
+                    
+                appTable.innerHTML = str;
+            } else {
+                console.log("Cannot connect to Hadoop Application Timeline Server (ATS)");
+            }
+        };
+
+        xhr.send();
+    }
+
+	function init() {
+        gangliaImgs = document.getElementById('gangliaImgs');
+        swimlaneImg =  d3.select("#swimlaneImg");
+
+        loadRecentQueries();
+	}
+	
+	function trans(str_time){
+		//  %m/%d/%Y %H:%M
+		var time_format = /\d\d\/\d\d\/\d\d\d\d \d\d:\d\d/g;
+		var trimmed = str_time.trim();
+		if (trimmed.length != 16 || trimmed.match(time_format) == null){
+			return null;
+		}
+		return trimmed.replace(/\//g, "%2F").replace(" ", "+").replace(/:/g, "%3A");
+	}
+	
+	function setTimeFromMillis(from, until) {
+	    setTimeFromMomentObj(moment(from), moment(until));
+	}
+	
+	// from, until : a string that moment can parse
+	function setTimeFromMomentObj(from, until) {
+		document.getElementById("time-from").value = from.format('MM/DD/YYYY HH:mm');
+		document.getElementById("time-until").value = until.format('MM/DD/YYYY HH:mm');
+		
+		extract();
+	}
+	
+	function extract(){
+		gangliaImgs.innerHTML = '';
+		
+		var start = trans(document.getElementById("time-from").value);
+		var finish = trans(document.getElementById("time-until").value);
+		var ganglia_url = document.getElementById("ganglia-url").value;
+		var cluster_name = document.getElementById("cluster-name").value;
+		
+		var str_html = "<p>";
+		for (metric in metrics) {
+			var url = ganglia_url+"/graph.php?r=custom"+
+					"&c="+cluster_name+
+					"&m="+metric+
+					"&x="+metrics[metric]+
+					"&z="+imageSize+
+					"&cs="+start;
+			
+			if (finish != null) {
+				url += "&ce="+finish;
+			}
+			str_html += "<div class=\"col-xs-12 col-sm-12 col-md-12 co-lg-6\"><img src="+url+"></div>"
+		}
+		str_html += "</p>";
+		gangliaImgs.innerHTML = str_html;
+	}
+</script>
+
+<div style="height:100vh; overflow: auto;" class="col-lg-6 col-md-6 col-sm-12" align="center">
+	<div>
+		<table class="table table-striped table-bordered">
+			<th><h3>Ganglia</h3></th>
+			<tr><td>
+				<label>Ganglia address</label>
+				<input type="text" class="form-control" id="ganglia-url" value="http://50.1.101.152/ganglia"/>
+			</td></tr>
+			<tr><td>
+				<label>Cluster name</label>
+				<input type="text" class="form-control" id="cluster-name" value="unspecified">
+			</td></tr>
+			<tr><td>
+				<label>From</label>
+				<input type="text" class="form-control" id="time-from" placeholder="MM/DD/YYYY HH:mm"/>
+			</td></tr>
+			<tr><td>
+				<label>Until</label>
+				<input type="text" class="form-control" id="time-until" placeholder="MM/DD/YYYY HH:mm">
+			</td></tr>
+			<tr><td>
+				<button class="btn btn-default btn-danger btn-block" onclick="extract()">Submit</button>
+			</td></tr>
+		</table>
+	</div>
+
+    <div>
+        <table class="table table-striped table-bordered">
+            <th><h3>Presto</h3></th>
+            <tr><td>
+	            <label>Presto Web Server</label>
+	            <input type="text" class="form-control" id="presto-web-server" value="http://50.1.101.152:8080"/>
+            </td></tr>
+
+            <tr><td>
+	            <button class="btn btn-default btn-danger btn-block" onclick="loadRecentQueries()">
+		            Load recent Presto queries
+	            </button>
+            </td></tr>
+        </table>
+    </div>
+
+    <div style="height:50vh; overflow: auto;">
+        <table class="table table-striped table-bordered">
+            <thead>
+            <tr>
+                <th>DAG ID</th>
+                <th>Start</th>
+                <th>End</th>
+                <th>Status</th>
+                <th>Duration</th>
+                <th>Load</th>
+            </tr>
+            </thead>
+            <tbody id="tez-dags-table"></tbody>
+        </table>
+    </div>
+
+</div>
+
+<div style="height:100vh; overflow: auto;" class="col-lg-6 col-md-6 col-sm-12" align="center">
+    <svg id="swimlaneImg" width="630" height="630"></svg>
+    <div id="gangliaImgs"></div>
+</div>
+</body>
+</html>
