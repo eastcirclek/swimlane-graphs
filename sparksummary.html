@@ -247,8 +247,6 @@
                         str +=
                             '<td><input type="checkbox" class="checkbox" value="' + job.jobId +
                             '" onclick=onJobClicked(this)></td>';
-//                            '<td><button type="button" class="btn btn-primary btn-sm" ' +
-//                            'onclick=onJobClicked("'+appId+'","'+job.jobId+'")>Load</button></td>';
                         str += '</tr>';
 
                         allJobs[job.jobId] = job;
@@ -296,20 +294,18 @@
                 return allJobs[b].endTime - allJobs[a].endTime
             })[0];
             
-            
             var job = {
                 startTime  : allJobs[firstStarted].startTime,
 	            startTime2 : allJobs[firstStarted].startTime.clone().startOf('minute'),
 	            endTime    : allJobs[lastFinished].endTime,
 	            endTime2   : allJobs[lastFinished].endTime.clone().add(1, 'minute').startOf('minute')
             }
-            
+
             setTimeFromMomentObj(job.startTime2, job.endTime2);
             
             var stages = [];
             for (var jobId in selectedJobs) {
-	            var job = allJobs[jobId];
-	            stages = stages.concat(job.stageIds);
+	            stages = stages.concat(allJobs[jobId].stageIds);
             }
 
             var historyServer = document.getElementById("spark-history-server").value;
@@ -349,11 +345,14 @@
 		                stageTasks.forEach(function (stageTasks){
 			                job.alltasks[stageTasks.stageId] =
 				                stageTasks.tasks.map(function(task) {
-					                return {
-						                taskId    : task.index,
-					                    startTime : timeStringConverter(task.launchTime),
-						                endTime   : timeStringConverter(task.launchTime) + task.taskMetrics.executorRunTime
-					                }
+					                var obj =
+						                {
+							                taskId    : task.index,
+							                startTime : timeStringConverter(task.launchTime),
+							                endTime   : timeStringConverter(task.launchTime) + task.taskMetrics.executorRunTime
+						                }
+						                
+					                return obj;
 				                });
 		                });
 		                
