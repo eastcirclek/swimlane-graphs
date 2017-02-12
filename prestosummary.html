@@ -22,6 +22,15 @@
 	var gangliaImgs;
 	var swimlaneImg;
 
+	// key : ganglia metrics name
+	// value : maximum value in Y-axis
+	var metrics = {
+	"cpu_report":"",
+        "network_stack_report":"2000000000",
+        "disk_throu_report":"4000000000"
+	};
+
+
 	<!-- var metrics = {"cpu_report":"", "input_disk_report":"2500000000", "temp_disk_report":"2500000000", "output_disk_report":"2500000000", "network_report":"2500000000"}; -->
 	var metrics = {
 //		"mem_report":"",
@@ -199,8 +208,8 @@
                     getTasks(query, [xhr.response.outputStage], query.alltasks);
                 }
                 
-                query.createTime2 = query.createTime.startOf('minute');
-                query.endTime2 = query.endTime.add(1, 'minute').startOf('minute');
+                query.createTime2 = query.createTime.clone().startOf('minute');
+                query.endTime2 = query.endTime.clone().add(1, 'minute').startOf('minute');
                 
                 setTimeFromMomentObj(query.createTime2, query.endTime2);
                 draw(query);

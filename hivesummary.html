@@ -21,12 +21,12 @@
 	var gangliaImgs;
 	var swimlaneImg;
 
+	// key : ganglia metrics name
+	// value : maximum value in Y-axis
 	var metrics = {
-		"cpu_report":"",
+	"cpu_report":"",
         "network_stack_report":"2000000000",
         "disk_throu_report":"4000000000"
-//        "network_report":"1000000000",
-//		"load_all_report":"",
 	};
 	
 
@@ -145,14 +145,14 @@
                         vertexName     : vertexName,
                         scheduledTime  : taskInfo.scheduledTime,
                         startTime      : taskInfo.startTime,
-                        endTime        : taskInfo.endTime
+                        endTime        : (taskInfo.endTime === undefined)?moment():taskInfo.endTime
                     }
 
                     dag.vertices[vertexName].push( task );
                 }
                 
-                dag.startTime2 = dag.startTime.startOf('minute');
-                dag.endTime2 = dag.endTime.add(1, 'minute').startOf('minute');
+                dag.startTime2 = dag.startTime.clone().startOf('minute');
+                dag.endTime2 = dag.endTime.clone().add(1, 'minute').startOf('minute');
 
                 setTimeFromMillis(dag.startTime2, dag.endTime2);
                 draw(dag);
